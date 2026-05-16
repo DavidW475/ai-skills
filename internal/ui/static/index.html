@@ -478,7 +478,7 @@
 
     </main>
 
-    <script>
+    <script type="module">
         const TABS = ['installed', 'sources', 'install'];
 
         function showTab(name) {
@@ -608,7 +608,7 @@
                 if (updated.length) {
                     flash(`Updated: ${updated.map(r => r.name).join(', ')}`, 'success');
                 } else {
-                    flash(`All ${skipped.length} skill${skipped.length !== 1 ? 's' : ''} already up-to-date`, 'info');
+                    flash(`All ${skipped.length} skill${skipped.length === 1 ? '' : 's'} already up-to-date`, 'info');
                 }
                 loadInstalled();
             } catch (e) {
@@ -729,8 +729,11 @@
             } catch (e) { flash(e.message, 'error'); }
         }
 
+        // Expose functions for inline event handlers (required for module scripts)
+        Object.assign(window, { showTab, updateAll, loadInstalled, loadAvailable, addSource, quickInstall, uninstallSkill, updateSkill, removeSource, filterAvailable });
+
         // Initial load
-        loadInstalled();
+        await loadInstalled();
     </script>
 </body>
 

@@ -5,13 +5,14 @@ on:
     tags:
       - "v*.*.*"
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +35,8 @@ jobs:
     name: Build binaries
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -75,6 +78,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
