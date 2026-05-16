@@ -2,7 +2,7 @@ package skill
 
 import (
 	"bytes"
-	_ "embed"
+	_ "embed" // required to register the go:embed directive used below
 	"errors"
 	"fmt"
 	"os"
