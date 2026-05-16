@@ -487,3 +487,197 @@ func TestListen_startsAndReturnsURL(t *testing.T) {
 		t.Errorf("Listen() URL = %q, want http://...", url)
 	}
 }
+
+// ---- handleUpdateAll ----
+
+func TestHandleUpdateAll_emptyLockfile(t *testing.T) {
+	tempHome(t)
+	// No skills installed → installer.Install returns nil,nil → 200 null
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/update", nil)
+	newServer().handleUpdateAll(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+// ---- handleInstall ----
+
+func TestHandleInstall_badBody(t *testing.T) {
+	tempHome(t)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/install", strings.NewReader("not json"))
+	newServer().handleInstall(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleInstall_noSources_error(t *testing.T) {
+	tempHome(t)
+	body, _ := json.Marshal(map[string]string{"Name": "ansible", "Version": ""})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/install", bytes.NewReader(body))
+	newServer().handleInstall(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", w.Code)
+	}
+}
+
+// ---- handleCheckUpdate ----
+
+func TestHandleCheckUpdate_withSource(t *testing.T) {
+	tempHome(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": []string{"v2.0.0"}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	saveSources(t, host+"/ns")
+	saveLockfile(t, lockfile.Entry{
+		Name: "ansible", Resolved: host + "/ns/ansible:v1.0.0", Digest: "d", Installed: "",
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/check-update?name=ansible", nil)
+	newServer().handleCheckUpdate(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
+	}
+	var result struct {
+		Current   string `json:"current"`
+		Latest    string `json:"latest"`
+		HasUpdate bool   `json:"hasUpdate"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &result)
+	if result.Current != "v1.0.0" {
+		t.Errorf("current = %q, want v1.0.0", result.Current)
+	}
+	if result.Latest != "v2.0.0" {
+		t.Errorf("latest = %q, want v2.0.0", result.Latest)
+	}
+	if !result.HasUpdate {
+		t.Error("hasUpdate = false, want true")
+	}
+}
+
+// ---- handleVersions ----
+
+func TestHandleVersions_withSource(t *testing.T) {
+	tempHome(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": []string{"v1.0.0", "v1.1.0"}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	saveSources(t, host+"/ns")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/versions?name=ansible", nil)
+	newServer().handleVersions(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
+	}
+	var results []struct {
+		Source string   `json:"source"`
+		Tags   []string `json:"tags"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &results)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	if len(results[0].Tags) != 2 {
+		t.Errorf("expected 2 tags, got %d: %v", len(results[0].Tags), results[0].Tags)
+	}
+}
+
+// ---- handleAvailable / buildAvailableSource ----
+
+func TestHandleAvailable_withSource(t *testing.T) {
+	tempHome(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v2/_catalog" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"repositories": []string{"ns/ansible"}})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": []string{"v1.0.0"}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	saveSources(t, host+"/ns")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/available", nil)
+	newServer().handleAvailable(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
+	}
+	var results []struct {
+		Source string `json:"source"`
+		Skills []struct {
+			Name   string `json:"name"`
+			Latest string `json:"latest"`
+		} `json:"skills"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &results)
+	if len(results) == 0 {
+		t.Fatal("expected results")
+	}
+	if len(results[0].Skills) == 0 {
+		t.Fatal("expected skills in first source result")
+	}
+}
+
+// ---- runSearch with mock server ----
+
+func TestHandleAvailable_withError(t *testing.T) {
+	tempHome(t)
+
+	// server returns error for catalog
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	saveSources(t, host+"/ns")
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/available", nil)
+	newServer().handleAvailable(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (with error in body)", w.Code)
+	}
+	var results []struct {
+		Error string `json:"error,omitempty"`
+	}
+	decodeJSON(t, w.Body.Bytes(), &results)
+	if len(results) == 0 || results[0].Error == "" {
+		t.Error("expected error in available result")
+	}
+}
