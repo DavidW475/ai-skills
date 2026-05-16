@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -673,5 +676,189 @@ func TestListSkillsViaCatalog_success(t *testing.T) {
 	}
 	if len(skills) != 2 {
 		t.Errorf("expected 2 skills, got %d: %v", len(skills), skills)
+	}
+}
+
+// ---- listSkillsViaGitLabAPI (with actual credentials) ----
+
+func TestListSkillsViaGitLabAPI_success(t *testing.T) {
+	setTempHome(t)
+
+	items := []repoItem{{Path: "ns/ansible"}, {Path: "ns/terraform"}}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("PRIVATE-TOKEN") == "mytoken" || r.Header.Get("Authorization") == "Bearer mytoken" {
+			json.NewEncoder(w).Encode(items)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	tsHost := strings.TrimPrefix(ts.URL, "http://")
+	regHost := "registry." + tsHost
+	ctx := context.Background()
+	if err := Login(ctx, regHost, "user", "mytoken"); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	cs, _ := credentials.NewStoreFromDocker(credentials.StoreOptions{})
+
+	skills, err := listSkillsViaGitLabAPI(ctx, regHost, "ns", cs, true)
+	if err != nil {
+		t.Fatalf("listSkillsViaGitLabAPI() error: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Errorf("expected 2 skills, got %d: %v", len(skills), skills)
+	}
+}
+
+func TestListSkillsViaGitLabAPI_authFailed(t *testing.T) {
+	setTempHome(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	tsHost := strings.TrimPrefix(ts.URL, "http://")
+	regHost := "registry." + tsHost
+	ctx := context.Background()
+	if err := Login(ctx, regHost, "user", "badtoken"); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	cs, _ := credentials.NewStoreFromDocker(credentials.StoreOptions{})
+
+	_, err := listSkillsViaGitLabAPI(ctx, regHost, "ns", cs, true)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("expected authentication failed error, got: %v", err)
+	}
+}
+
+// ---- Push ----
+
+func newMockPushServer(t *testing.T, repoPath string) *httptest.Server {
+	t.Helper()
+
+	blobs := make(map[string][]byte)
+	manifests := make(map[string][]byte)
+	uploadUUID := "test-upload-uuid-1234"
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// Blob HEAD (existence check)
+		if r.Method == http.MethodHead && strings.Contains(path, "/blobs/") {
+			blobDig := path[strings.LastIndex(path, "/")+1:]
+			if _, ok := blobs[blobDig]; ok {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+			return
+		}
+
+		// Manifest HEAD (existence check)
+		if r.Method == http.MethodHead && strings.Contains(path, "/manifests/") {
+			ref := path[strings.LastIndex(path, "/")+1:]
+			if _, ok := manifests[ref]; ok {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+			return
+		}
+
+		// Start blob upload (POST)
+		if r.Method == http.MethodPost && strings.HasSuffix(path, "/blobs/uploads/") {
+			w.Header().Set("Location", "/v2/"+repoPath+"/blobs/uploads/"+uploadUUID)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+
+		// Complete blob upload (PUT)
+		if r.Method == http.MethodPut && strings.Contains(path, "/blobs/uploads/") {
+			blobDig := r.URL.Query().Get("digest")
+			data, _ := io.ReadAll(r.Body)
+			blobs[blobDig] = data
+			w.Header().Set("Docker-Content-Digest", blobDig)
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+
+		// Push manifest (PUT)
+		if r.Method == http.MethodPut && strings.Contains(path, "/manifests/") {
+			ref := path[strings.LastIndex(path, "/")+1:]
+			data, _ := io.ReadAll(r.Body)
+			d := digest.FromBytes(data)
+			manifests[ref] = data
+			manifests[d.String()] = data
+			w.Header().Set("Docker-Content-Digest", d.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+
+		// Get manifest (GET) — needed for Tag re-push
+		if r.Method == http.MethodGet && strings.Contains(path, "/manifests/") {
+			ref := path[strings.LastIndex(path, "/")+1:]
+			if data, ok := manifests[ref]; ok {
+				d := digest.FromBytes(data)
+				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+				w.Header().Set("Docker-Content-Digest", d.String())
+				w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+				w.Write(data)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+}
+
+func makeRegistryTestSkillDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "skill.yaml"), []byte("name: test-skill\nversion: v1.0.0\n"), 0o644); err != nil {
+		t.Fatalf("write skill.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# test-skill\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	return dir
+}
+
+func TestPush_success(t *testing.T) {
+	setTempHome(t)
+
+	dir := makeRegistryTestSkillDir(t)
+	ts := newMockPushServer(t, "ns/test-skill")
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	ref := host + "/ns/test-skill:v1.0.0"
+
+	dig, err := Push(context.Background(), dir, ref, true)
+	if err != nil {
+		t.Fatalf("Push() error: %v", err)
+	}
+	if dig == "" {
+		t.Error("Push() returned empty digest")
+	}
+}
+
+func TestPush_noTag(t *testing.T) {
+	setTempHome(t)
+	dir := makeRegistryTestSkillDir(t)
+	_, err := Push(context.Background(), dir, "ghcr.io/myorg/skill", true)
+	if err == nil || !strings.Contains(err.Error(), "no tag") {
+		t.Errorf("expected 'no tag' error, got: %v", err)
+	}
+}
+
+func TestPush_invalidManifestDir(t *testing.T) {
+	setTempHome(t)
+	_, err := Push(context.Background(), t.TempDir(), "ghcr.io/myorg/skill:v1.0.0", true)
+	if err == nil {
+		t.Error("Push() should fail for directory without skill.yaml")
 	}
 }

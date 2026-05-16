@@ -1,6 +1,11 @@
 package resolver
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -140,5 +145,103 @@ func TestTagsForVersion_explicitWithoutV(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != "v1.2.3" || got[1] != "1.2.3" {
 		t.Errorf("tagsForVersion() = %v, want [v1.2.3 1.2.3]", got)
+	}
+}
+
+// ---- Resolve ----
+
+func TestResolve_noSources(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_, _, err := Resolve(context.Background(), []string{}, "ansible", "", false)
+	if err == nil || !strings.Contains(err.Error(), "no sources configured") {
+		t.Errorf("expected 'no sources configured', got: %v", err)
+	}
+}
+
+func TestResolve_allSourcesUnreachable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// dead server: ListTags (empty version) fails → tried stays empty
+	_, _, err := Resolve(context.Background(), []string{"127.0.0.1:1/ns"}, "ansible", "", false)
+	if err == nil || !strings.Contains(err.Error(), "could not reach") {
+		t.Errorf("expected 'could not reach', got: %v", err)
+	}
+}
+
+func TestResolve_skillNotFound_triedAll(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// explicit version: tagsForVersion is pure (no network), returns ["v1.2.3","1.2.3"]
+	// but ResolveDigest fails on dead server → tried is non-empty → "not found in any"
+	_, _, err := Resolve(context.Background(), []string{"127.0.0.1:1/ns"}, "ansible", "v1.2.3", false)
+	if err == nil || !strings.Contains(err.Error(), "not found in any configured source") {
+		t.Errorf("expected 'not found in any configured source', got: %v", err)
+	}
+}
+
+func TestResolve_success(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	wantDigest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	manifestBody := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","layers":[]}`)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": []string{"v1.0.0"}})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/manifests/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			w.Header().Set("Docker-Content-Digest", wantDigest)
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Length", "0")
+				w.Write(manifestBody)
+			}
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	ref, dig, err := Resolve(context.Background(), []string{host + "/ns"}, "ansible", "", true)
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if ref == "" {
+		t.Error("Resolve() returned empty ref")
+	}
+	if dig != wantDigest {
+		t.Errorf("Resolve() digest = %q, want %q", dig, wantDigest)
+	}
+}
+
+// ---- tagsForVersion (empty version network paths) ----
+
+func TestTagsForVersion_emptyVersion_noSemver(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": []string{"latest", "stable"}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	_, err := tagsForVersion(context.Background(), host+"/ns/ansible", "", true)
+	if err == nil || !strings.Contains(err.Error(), "no semver tags") {
+		t.Errorf("expected 'no semver tags' error, got: %v", err)
+	}
+}
+
+func TestTagsForVersion_emptyVersion_tagsError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// dead server: ListTags returns error
+	_, err := tagsForVersion(context.Background(), "127.0.0.1:1/ns/ansible", "", false)
+	if err == nil {
+		t.Error("expected error from dead server, got nil")
 	}
 }

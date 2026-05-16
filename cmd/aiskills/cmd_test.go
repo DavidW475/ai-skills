@@ -2,6 +2,10 @@ package aiskills
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -345,5 +349,144 @@ func TestVersionsCmd_noSources(t *testing.T) {
 	err := cmd.RunE(cmd, []string{"ansible"})
 	if err == nil || !strings.Contains(err.Error(), "no sources configured") {
 		t.Errorf("expected 'no sources configured' error, got: %v", err)
+	}
+}
+
+// ---- uninstall via RunE ----
+
+func TestUninstallCmd_viaRunE(t *testing.T) {
+	setTempHome(t)
+	lf := &lockfile.LockFile{}
+	lf.Upsert(lockfile.Entry{Name: "ansible", Resolved: "ghcr.io/ns/ansible:v1", Digest: "sha256:abc", Installed: ""})
+	if err := lockfile.Save(lf); err != nil {
+		t.Fatalf("save lockfile: %v", err)
+	}
+	cmd := newUninstallCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	if err := cmd.RunE(cmd, []string{"ansible"}); err != nil {
+		t.Fatalf("RunE error: %v", err)
+	}
+}
+
+func TestUninstallCmd_viaRunE_notFound(t *testing.T) {
+	setTempHome(t)
+	cmd := newUninstallCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	err := cmd.RunE(cmd, []string{"nonexistent"})
+	if err == nil || !strings.Contains(err.Error(), "could not be uninstalled") {
+		t.Errorf("expected uninstall error, got: %v", err)
+	}
+}
+
+// ---- versions with source ----
+
+func newMockCmdTagsServer(t *testing.T, tags []string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": tags})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+}
+
+func TestVersionsCmd_withSource_success(t *testing.T) {
+	setTempHome(t)
+	ts := newMockCmdTagsServer(t, []string{"v1.0.0", "v1.1.0"})
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	sf := &sources.File{Sources: []string{host + "/ns"}}
+	if err := sources.Save(sf); err != nil {
+		t.Fatalf("save sources: %v", err)
+	}
+
+	cmd := newVersionsCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+	cmd.Flags().Set("plain-http", "true") //nolint:errcheck
+	if err := cmd.RunE(cmd, []string{"ansible"}); err != nil {
+		t.Fatalf("RunE error: %v", err)
+	}
+	if !strings.Contains(out.String(), "v1.0.0") {
+		t.Errorf("expected v1.0.0 in output, got: %s", out.String())
+	}
+}
+
+func TestVersionsCmd_withSource_error(t *testing.T) {
+	setTempHome(t)
+	sf := &sources.File{Sources: []string{"127.0.0.1:1/ns"}}
+	if err := sources.Save(sf); err != nil {
+		t.Fatalf("save sources: %v", err)
+	}
+	cmd := newVersionsCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	errBuf := &bytes.Buffer{}
+	cmd.SetErr(errBuf)
+	cmd.SetContext(context.Background())
+	err := cmd.RunE(cmd, []string{"ansible"})
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+}
+
+// ---- printSearchSource ----
+
+func TestPrintSearchSource_success(t *testing.T) {
+	setTempHome(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v2/_catalog" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"repositories": []string{"ns/ansible"}})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/tags/list") {
+			json.NewEncoder(w).Encode(map[string]interface{}{"tags": []string{"v1.0.0"}})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	host := strings.TrimPrefix(ts.URL, "http://")
+	src := host + "/ns"
+	lf := &lockfile.LockFile{}
+	lf.Upsert(lockfile.Entry{Name: "ansible", Resolved: "r", Digest: "d", Installed: ""})
+
+	cmd := newSearchCmd()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	w := out
+
+	found := printSearchSource(cmd, context.Background(), w, src, lf, true)
+	if !found {
+		t.Errorf("printSearchSource: expected found=true")
+	}
+}
+
+func TestPrintSearchSource_registryError(t *testing.T) {
+	setTempHome(t)
+
+	cmd := newSearchCmd()
+	errBuf := &bytes.Buffer{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(errBuf)
+
+	lf := &lockfile.LockFile{}
+	found := printSearchSource(cmd, context.Background(), &bytes.Buffer{}, "127.0.0.1:1/ns", lf, true)
+	if found {
+		t.Error("expected found=false on registry error")
+	}
+	if !strings.Contains(errBuf.String(), "warning") {
+		t.Errorf("expected warning in stderr, got: %s", errBuf.String())
 	}
 }
