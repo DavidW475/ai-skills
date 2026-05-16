@@ -1,7 +1,11 @@
 package sources
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/DavidW475/ai-skills/internal/config"
 )
 
 // ---- Add ----
@@ -98,5 +102,71 @@ func TestAddRemoveRoundTrip(t *testing.T) {
 
 	if len(f.Sources) != 1 || f.Sources[0] != "b" {
 		t.Errorf("unexpected Sources after round-trip: %v", f.Sources)
+	}
+}
+
+// ---- Load ----
+
+func TestLoad_missing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	f, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(f.Sources) != 0 {
+		t.Errorf("expected empty sources file, got %v", f.Sources)
+	}
+}
+
+func TestLoad_invalidYAML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dir := filepath.Join(home, config.DirName)
+	os.MkdirAll(dir, 0o755)                                                                   //nolint:errcheck
+	os.WriteFile(filepath.Join(dir, config.SourcesFile), []byte("sources: [unclosed"), 0o644) //nolint:errcheck
+
+	if _, err := Load(); err == nil {
+		t.Error("Load() should error on invalid YAML")
+	}
+}
+
+// ---- Save / Load round-trip ----
+
+func TestSave_roundTrip(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	f := &File{}
+	f.Add("registry.example.com/ns-a")
+	f.Add("registry.example.com/ns-b")
+
+	if err := Save(f); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() after Save() error: %v", err)
+	}
+	if len(loaded.Sources) != 2 {
+		t.Fatalf("expected 2 sources, got %d", len(loaded.Sources))
+	}
+	if loaded.Sources[0] != "registry.example.com/ns-a" {
+		t.Errorf("Sources[0] = %q, want registry.example.com/ns-a", loaded.Sources[0])
+	}
+}
+
+func TestSave_createsDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := Save(&File{}); err != nil {
+		t.Fatalf("Save() should create parent directory: %v", err)
+	}
+
+	path := filepath.Join(home, config.DirName, config.SourcesFile)
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected file at %s after Save: %v", path, err)
 	}
 }

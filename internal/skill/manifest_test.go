@@ -132,3 +132,68 @@ func TestWriteManifest_invalidManifest(t *testing.T) {
 		t.Error("WriteManifest() should error for invalid manifest")
 	}
 }
+
+// ---- Scaffold ----
+
+func TestScaffold_createsFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := Scaffold(dir, "new-skill", "0.1.0"); err != nil {
+		t.Fatalf("Scaffold() error: %v", err)
+	}
+
+	// skill.yaml must exist and be valid
+	m, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest() after Scaffold() error: %v", err)
+	}
+	if m.Name != "new-skill" {
+		t.Errorf("Name = %q, want new-skill", m.Name)
+	}
+	if m.Version != "0.1.0" {
+		t.Errorf("Version = %q, want 0.1.0", m.Version)
+	}
+
+	// SKILL.md must exist
+	if _, err := os.Stat(filepath.Join(dir, SkillFile)); err != nil {
+		t.Errorf("SKILL.md not found after Scaffold: %v", err)
+	}
+}
+
+func TestScaffold_doesNotOverwriteSkillMD(t *testing.T) {
+	dir := t.TempDir()
+	existing := []byte("# My existing skill\n")
+	if err := os.WriteFile(filepath.Join(dir, SkillFile), existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Scaffold(dir, "my-skill", "1.0.0"); err != nil {
+		t.Fatalf("Scaffold() error: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, SkillFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(existing) {
+		t.Errorf("Scaffold() overwrote existing SKILL.md: got %q", string(got))
+	}
+}
+
+func TestScaffold_createsDirectory(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "nested", "skill")
+
+	if err := Scaffold(dir, "nested-skill", "1.0.0"); err != nil {
+		t.Fatalf("Scaffold() error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ManifestFile)); err != nil {
+		t.Errorf("skill.yaml not found in nested dir: %v", err)
+	}
+}
+
+func TestScaffold_invalidName(t *testing.T) {
+	dir := t.TempDir()
+	if err := Scaffold(dir, "Invalid Name!", "1.0.0"); err == nil {
+		t.Error("Scaffold() should fail for invalid skill name")
+	}
+}
