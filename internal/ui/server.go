@@ -59,6 +59,11 @@ func Listen(ctx context.Context, addr string, plainHTTP bool) (string, error) {
 
 type server struct{ plainHTTP bool }
 
+const (
+	errMethodNotAllowed = "method not allowed"
+	errMissingName      = "missing name"
+)
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
@@ -85,12 +90,12 @@ func (s *server) handleInstalled(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleUninstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, errMethodNotAllowed, http.StatusMethodNotAllowed)
 		return
 	}
 	var req struct{ Name string }
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
-		writeError(w, "missing name", http.StatusBadRequest)
+		writeError(w, errMissingName, http.StatusBadRequest)
 		return
 	}
 	lf, err := lockfile.Load()
@@ -129,7 +134,7 @@ func (s *server) handleSourcesList(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleSourcesAdd(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, errMethodNotAllowed, http.StatusMethodNotAllowed)
 		return
 	}
 	var req struct{ Source string }
@@ -156,7 +161,7 @@ func (s *server) handleSourcesAdd(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleSourcesRemove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, errMethodNotAllowed, http.StatusMethodNotAllowed)
 		return
 	}
 	var req struct{ Source string }
@@ -183,7 +188,7 @@ func (s *server) handleSourcesRemove(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, errMethodNotAllowed, http.StatusMethodNotAllowed)
 		return
 	}
 	results, err := installer.Install(r.Context(), installer.Options{PlainHTTP: s.plainHTTP})
@@ -196,7 +201,7 @@ func (s *server) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, errMethodNotAllowed, http.StatusMethodNotAllowed)
 		return
 	}
 	var req struct {
@@ -204,7 +209,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		Version string
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
-		writeError(w, "missing name", http.StatusBadRequest)
+		writeError(w, errMissingName, http.StatusBadRequest)
 		return
 	}
 	result, err := installer.InstallOne(r.Context(), req.Name, req.Version, installer.Options{
@@ -220,7 +225,7 @@ func (s *server) handleInstall(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		writeError(w, "missing name", http.StatusBadRequest)
+		writeError(w, errMissingName, http.StatusBadRequest)
 		return
 	}
 	lf, err := lockfile.Load()
@@ -269,6 +274,58 @@ func (s *server) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type skillInfo struct {
+	Name             string `json:"name"`
+	Latest           string `json:"latest"`
+	Source           string `json:"source"`
+	Installed        bool   `json:"installed"`
+	InstalledVersion string `json:"installedVersion,omitempty"`
+}
+
+type availableSourceResult struct {
+	Source string      `json:"source"`
+	Skills []skillInfo `json:"skills"`
+	Error  string      `json:"error,omitempty"`
+}
+
+func installedVersion(resolved string) string {
+	if idx := strings.LastIndex(resolved, ":"); idx >= 0 {
+		return resolved[idx+1:]
+	}
+	return ""
+}
+
+func (s *server) buildAvailableSource(ctx context.Context, src string, lf *lockfile.LockFile) availableSourceResult {
+	sr := availableSourceResult{Source: src}
+	skills, err := registry.ListSkills(ctx, src, s.plainHTTP)
+	if err != nil {
+		sr.Error = err.Error()
+		return sr
+	}
+	for _, name := range skills {
+		repoRef := strings.TrimRight(src, "/") + "/" + name
+		tags, _ := registry.ListTags(ctx, repoRef, s.plainHTTP)
+		latest := resolver.LatestTag(tags)
+		if latest == "" && len(tags) > 0 {
+			latest = tags[len(tags)-1]
+		}
+		entry := lf.Find(name)
+		var installedVer string
+		if entry != nil {
+			// Extract the tag from the resolved ref (e.g. "host/path:tag" → "tag").
+			installedVer = installedVersion(entry.Resolved)
+		}
+		sr.Skills = append(sr.Skills, skillInfo{
+			Name:             name,
+			Latest:           latest,
+			Source:           src,
+			Installed:        entry != nil,
+			InstalledVersion: installedVer,
+		})
+	}
+	return sr
+}
+
 func (s *server) handleAvailable(w http.ResponseWriter, r *http.Request) {
 	sf, err := sources.Load()
 	if err != nil {
@@ -280,51 +337,9 @@ func (s *server) handleAvailable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	type skillInfo struct {
-		Name             string `json:"name"`
-		Latest           string `json:"latest"`
-		Source           string `json:"source"`
-		Installed        bool   `json:"installed"`
-		InstalledVersion string `json:"installedVersion,omitempty"`
-	}
-	type sourceResult struct {
-		Source string      `json:"source"`
-		Skills []skillInfo `json:"skills"`
-		Error  string      `json:"error,omitempty"`
-	}
-	results := make([]sourceResult, 0, len(sf.Sources))
+	results := make([]availableSourceResult, 0, len(sf.Sources))
 	for _, src := range sf.Sources {
-		sr := sourceResult{Source: src}
-		skills, err := registry.ListSkills(r.Context(), src, s.plainHTTP)
-		if err != nil {
-			sr.Error = err.Error()
-			results = append(results, sr)
-			continue
-		}
-		for _, name := range skills {
-			repoRef := strings.TrimRight(src, "/") + "/" + name
-			tags, _ := registry.ListTags(r.Context(), repoRef, s.plainHTTP)
-			latest := resolver.LatestTag(tags)
-			if latest == "" && len(tags) > 0 {
-				latest = tags[len(tags)-1]
-			}
-			entry := lf.Find(name)
-			var installedVer string
-			if entry != nil {
-				// Extract the tag from the resolved ref (e.g. "host/path:tag" → "tag").
-				if idx := strings.LastIndex(entry.Resolved, ":"); idx >= 0 {
-					installedVer = entry.Resolved[idx+1:]
-				}
-			}
-			sr.Skills = append(sr.Skills, skillInfo{
-				Name:             name,
-				Latest:           latest,
-				Source:           src,
-				Installed:        entry != nil,
-				InstalledVersion: installedVer,
-			})
-		}
-		results = append(results, sr)
+		results = append(results, s.buildAvailableSource(r.Context(), src, lf))
 	}
 	writeJSON(w, results)
 }
@@ -332,7 +347,7 @@ func (s *server) handleAvailable(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleVersions(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	if name == "" {
-		writeError(w, "missing name", http.StatusBadRequest)
+		writeError(w, errMissingName, http.StatusBadRequest)
 		return
 	}
 	sf, err := sources.Load()

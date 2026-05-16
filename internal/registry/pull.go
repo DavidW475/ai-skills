@@ -138,7 +138,6 @@ func ListSkills(ctx context.Context, source string, plainHTTP bool) ([]string, e
 	if len(parts) == 2 {
 		namespace = parts[1]
 	}
-	prefix := namespace + "/"
 
 	credStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{AllowPlaintextPut: false})
 	if err != nil {
@@ -156,9 +155,18 @@ func ListSkills(ctx context.Context, source string, plainHTTP bool) ([]string, e
 	}
 
 	catalogCtx := auth.WithScopes(ctx, "registry:catalog:*")
+	skills, catalogErr := listSkillsViaCatalog(catalogCtx, reg, namespace)
+	if catalogErr == nil {
+		return skills, nil
+	}
 
+	return handleCatalogError(ctx, host, namespace, credStore, plainHTTP, catalogErr)
+}
+
+func listSkillsViaCatalog(ctx context.Context, reg *remote.Registry, namespace string) ([]string, error) {
+	prefix := namespace + "/"
 	var skills []string
-	catalogErr := reg.Repositories(catalogCtx, "", func(repos []string) error {
+	err := reg.Repositories(ctx, "", func(repos []string) error {
 		for _, repo := range repos {
 			if namespace == "" || strings.HasPrefix(repo, prefix) {
 				name := strings.TrimPrefix(repo, prefix)
@@ -169,10 +177,10 @@ func ListSkills(ctx context.Context, source string, plainHTTP bool) ([]string, e
 		}
 		return nil
 	})
-	if catalogErr == nil {
-		return skills, nil
-	}
+	return skills, err
+}
 
+func handleCatalogError(ctx context.Context, host, namespace string, credStore credentials.Store, plainHTTP bool, catalogErr error) ([]string, error) {
 	// If the catalog call failed due to auth/permission, try GitLab REST API.
 	// GitLab restricts /v2/_catalog to admins; the projects API works for
 	// regular users who have access to the project.
@@ -200,6 +208,10 @@ func ListSkills(ctx context.Context, source string, plainHTTP bool) ([]string, e
 	return nil, catalogErr
 }
 
+type repoItem struct {
+	Path string `json:"path"`
+}
+
 // listSkillsViaGitLabAPI lists container registry repositories for a project
 // using the GitLab REST API. It derives the GitLab API host by stripping the
 // leading "registry." from the registry hostname (e.g. registry.gitlab.com →
@@ -223,74 +235,16 @@ func listSkillsViaGitLabAPI(ctx context.Context, regHost, namespace string, cred
 		return nil, fmt.Errorf("no credentials found for %s — run: ai-skills login %s", regHost, regHost)
 	}
 
-	type repoItem struct {
-		Path string `json:"path"`
-	}
-
-	fetchPage := func(url, tokenHeader, tokenValue string) ([]repoItem, string, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return nil, "", err
-		}
-		req.Header.Set(tokenHeader, tokenValue)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, "", err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return nil, "", fmt.Errorf("GitLab API returned %d for %s", resp.StatusCode, url)
-		}
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			return nil, "", fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-
-		var items []repoItem
-		if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-			return nil, "", fmt.Errorf("GitLab API response parse error: %w", err)
-		}
-
-		nextPage := resp.Header.Get("X-Next-Page")
-		var nextURL string
-		if nextPage != "" {
-			nextURL = baseURL + "?per_page=100&page=" + nextPage
-		}
-		return items, nextURL, nil
-	}
-
 	// Try PRIVATE-TOKEN first (Personal Access Token); fall back to Bearer (OAuth).
-	for _, auth := range []struct{ header, value string }{
+	for _, authMethod := range []struct{ header, value string }{
 		{"PRIVATE-TOKEN", cred.Password},
 		{"Authorization", "Bearer " + cred.Password},
 	} {
-		var allItems []repoItem
-		nextURL := baseURL + "?per_page=100"
-		var lastErr error
-		for nextURL != "" {
-			items, next, err := fetchPage(nextURL, auth.header, auth.value)
-			if err != nil {
-				lastErr = err
-				break
-			}
-			allItems = append(allItems, items...)
-			nextURL = next
-		}
-		if lastErr != nil {
+		allItems, err := collectAllPages(ctx, baseURL, authMethod.header, authMethod.value)
+		if err != nil {
 			continue // try next auth method
 		}
-
-		prefix := namespace + "/"
-		var skills []string
-		for _, item := range allItems {
-			name := strings.TrimPrefix(item.Path, prefix)
-			if name != item.Path && name != "" {
-				skills = append(skills, name)
-			}
-		}
-		return skills, nil
+		return extractSkillNames(allItems, namespace), nil
 	}
 
 	return nil, fmt.Errorf(
@@ -298,4 +252,64 @@ func listSkillsViaGitLabAPI(ctx context.Context, regHost, namespace string, cred
 			"Make sure the token used with 'ai-skills login %s' has at least the 'read_registry' or 'api' scope",
 		regHost, namespace, regHost,
 	)
+}
+
+func collectAllPages(ctx context.Context, baseURL, tokenHeader, tokenValue string) ([]repoItem, error) {
+	var allItems []repoItem
+	nextURL := baseURL + "?per_page=100"
+	for nextURL != "" {
+		items, next, err := fetchGitLabPage(ctx, nextURL, baseURL, tokenHeader, tokenValue)
+		if err != nil {
+			return nil, err
+		}
+		allItems = append(allItems, items...)
+		nextURL = next
+	}
+	return allItems, nil
+}
+
+func fetchGitLabPage(ctx context.Context, url, baseURL, tokenHeader, tokenValue string) ([]repoItem, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set(tokenHeader, tokenValue)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, "", fmt.Errorf("GitLab API returned %d for %s", resp.StatusCode, url)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, "", fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var items []repoItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, "", fmt.Errorf("GitLab API response parse error: %w", err)
+	}
+
+	nextPage := resp.Header.Get("X-Next-Page")
+	var nextURL string
+	if nextPage != "" {
+		nextURL = baseURL + "?per_page=100&page=" + nextPage
+	}
+	return items, nextURL, nil
+}
+
+func extractSkillNames(items []repoItem, namespace string) []string {
+	prefix := namespace + "/"
+	var skills []string
+	for _, item := range items {
+		name := strings.TrimPrefix(item.Path, prefix)
+		if name != item.Path && name != "" {
+			skills = append(skills, name)
+		}
+	}
+	return skills
 }

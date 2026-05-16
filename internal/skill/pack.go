@@ -23,7 +23,18 @@ func Pack(dir string, dst io.Writer) error {
 	gz := gzip.NewWriter(dst)
 	tw := tar.NewWriter(gz)
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(dir, makePackWalkFn(dir, tw))
+	if err != nil {
+		return fmt.Errorf("pack: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("pack: tar close: %w", err)
+	}
+	return gz.Close()
+}
+
+func makePackWalkFn(dir string, tw *tar.Writer) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -52,24 +63,21 @@ func Pack(dir string, dst io.Writer) error {
 		if info.IsDir() {
 			return nil
 		}
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(tw, f)
-		closeErr := f.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		return closeErr
-	})
+		return writePackEntry(tw, path)
+	}
+}
+
+func writePackEntry(tw *tar.Writer, path string) error {
+	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("pack: %w", err)
+		return err
 	}
-	if err := tw.Close(); err != nil {
-		return fmt.Errorf("pack: tar close: %w", err)
+	_, copyErr := io.Copy(tw, f)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return copyErr
 	}
-	return gz.Close()
+	return closeErr
 }
 
 // Unpack extracts a .tar.gz skill archive from src into dir.
@@ -90,36 +98,45 @@ func Unpack(src io.Reader, dir string) error {
 		if err != nil {
 			return fmt.Errorf("unpack: %w", err)
 		}
-
-		// Security: reject absolute paths and path traversal
-		name := filepath.FromSlash(hdr.Name)
-		if filepath.IsAbs(name) || strings.Contains(name, "..") {
-			return fmt.Errorf("unpack: unsafe path in archive: %q", hdr.Name)
+		if err := unpackEntry(tr, hdr, dir); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		target := filepath.Join(dir, name)
+func unpackEntry(tr *tar.Reader, hdr *tar.Header, dir string) error {
+	// Security: reject absolute paths and path traversal
+	name := filepath.FromSlash(hdr.Name)
+	if filepath.IsAbs(name) || strings.Contains(name, "..") {
+		return fmt.Errorf("unpack: unsafe path in archive: %q", hdr.Name)
+	}
 
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			// Limit file permissions to owner read/write
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-			if err != nil {
-				return err
-			}
-			// Limit read to 10 MB per file to prevent decompression bombs
-			_, copyErr := io.Copy(f, io.LimitReader(tr, 10<<20))
-			f.Close()
-			if copyErr != nil {
-				return fmt.Errorf("unpack: writing %s: %w", target, copyErr)
-			}
-		}
+	target := filepath.Join(dir, name)
+
+	switch hdr.Typeflag {
+	case tar.TypeDir:
+		return os.MkdirAll(target, 0o755)
+	case tar.TypeReg:
+		return unpackFile(tr, target)
+	}
+	return nil
+}
+
+func unpackFile(tr *tar.Reader, target string) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	// Limit file permissions to owner read/write
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	// Limit read to 10 MB per file to prevent decompression bombs
+	_, copyErr := io.Copy(f, io.LimitReader(tr, 10<<20))
+	f.Close()
+	if copyErr != nil {
+		return fmt.Errorf("unpack: writing %s: %w", target, copyErr)
 	}
 	return nil
 }
