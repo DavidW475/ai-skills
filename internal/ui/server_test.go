@@ -475,3 +475,15 @@ func TestWriteError(t *testing.T) {
 
 // Keep unused import satisfied (config is needed for the path helper)
 var _ = config.DirName
+
+func TestListen_startsAndReturnsURL(t *testing.T) {
+	tempHome(t)
+	ctx := t.Context()
+	url, err := Listen(ctx, "127.0.0.1:0", true)
+	if err != nil {
+		t.Fatalf("Listen() error: %v", err)
+	}
+	if !strings.HasPrefix(url, "http://") {
+		t.Errorf("Listen() URL = %q, want http://...", url)
+	}
+}

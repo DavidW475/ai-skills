@@ -120,3 +120,25 @@ func TestCompareSemVer(t *testing.T) {
 		}
 	}
 }
+
+// ---- tagsForVersion ----
+
+func TestTagsForVersion_explicitWithV(t *testing.T) {
+	got, err := tagsForVersion(nil, "example.com/ns/skill", "v1.2.3", true)
+	if err != nil {
+		t.Fatalf("tagsForVersion() error: %v", err)
+	}
+	if len(got) != 2 || got[0] != "v1.2.3" || got[1] != "1.2.3" {
+		t.Errorf("tagsForVersion() = %v, want [v1.2.3 1.2.3]", got)
+	}
+}
+
+func TestTagsForVersion_explicitWithoutV(t *testing.T) {
+	got, err := tagsForVersion(nil, "example.com/ns/skill", "1.2.3", true)
+	if err != nil {
+		t.Fatalf("tagsForVersion() error: %v", err)
+	}
+	if len(got) != 2 || got[0] != "v1.2.3" || got[1] != "1.2.3" {
+		t.Errorf("tagsForVersion() = %v, want [v1.2.3 1.2.3]", got)
+	}
+}
