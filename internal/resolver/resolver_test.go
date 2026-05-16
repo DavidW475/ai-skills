@@ -2,9 +2,13 @@ package resolver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -180,8 +184,9 @@ func TestResolve_skillNotFound_triedAll(t *testing.T) {
 func TestResolve_success(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	wantDigest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	manifestBody := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","layers":[]}`)
+	manifestBytes := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","layers":[]}`)
+	h := sha256.Sum256(manifestBytes)
+	wantDigest := fmt.Sprintf("sha256:%s", hex.EncodeToString(h[:]))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/tags/list") {
@@ -192,9 +197,9 @@ func TestResolve_success(t *testing.T) {
 		if strings.Contains(r.URL.Path, "/manifests/") {
 			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
 			w.Header().Set("Docker-Content-Digest", wantDigest)
-			if r.Method == http.MethodGet {
-				w.Header().Set("Content-Length", "0")
-				w.Write(manifestBody)
+			w.Header().Set("Content-Length", strconv.Itoa(len(manifestBytes)))
+			if r.Method != http.MethodHead {
+				w.Write(manifestBytes)
 			}
 			return
 		}
