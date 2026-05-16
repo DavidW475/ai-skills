@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ai-skills</title>
+    <style>
+        :root {
+            --bg: #f6f8fa;
+            --surface: #ffffff;
+            --border: #d0d7de;
+            --text: #1f2328;
+            --text-muted: #656d76;
+            --primary: #0969da;
+            --primary-hover: #0550ae;
+            --danger: #cf222e;
+            --success: #1a7f37;
+            --radius: 6px;
+            --shadow: 0 1px 3px rgba(27, 31, 36, .12);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* Header */
+        header {
+            background: #24292f;
+            color: #fff;
+            padding: 0 24px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: -.3px;
+        }
+
+        header .pill {
+            font-size: 11px;
+            background: rgba(255, 255, 255, .15);
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        /* Nav */
+        nav {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            display: flex;
+        }
+
+        nav button {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 12px 14px;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 14px;
+            transition: color .15s, border-color .15s;
+        }
+
+        nav button:hover {
+            color: var(--text);
+        }
+
+        nav button.active {
+            color: var(--text);
+            border-bottom-color: #fd8c73;
+            font-weight: 500;
+        }
+
+        /* Layout */
+        main {
+            max-width: 1000px;
+            margin: 24px auto;
+            padding: 0 24px;
+        }
+
+        #flash {
+            min-height: 0;
+            margin-bottom: 12px;
+        }
+
+        .tab {
+            display: none;
+        }
+
+        .tab.active {
+            display: block;
+        }
+
+        /* Card */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        .card-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f6f8fa;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            padding: 8px 16px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .4px;
+            color: var(--text-muted);
+            background: #f6f8fa;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: #f6f8fa;
+        }
+
+        .empty {
+            padding: 32px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            transition: background .15s;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            background: #f3f4f6;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            border-color: var(--primary-hover);
+        }
+
+        .btn-danger {
+            color: var(--danger);
+        }
+
+        .btn-danger:hover {
+            background: #fff0ee;
+            border-color: #ffa198;
+        }
+
+        .btn-sm {
+            padding: 3px 8px;
+            font-size: 12px;
+        }
+
+        .btn:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+        }
+
+        /* Forms */
+        .form-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-width: 140px;
+        }
+
+        label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        input[type=text] {
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 14px;
+            outline: none;
+        }
+
+        input[type=text]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
+        }
+
+        /* Alert */
+        .alert {
+            padding: 10px 14px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .alert-success {
+            background: #dafbe1;
+            border: 1px solid #aceebb;
+            color: #116329;
+        }
+
+        .alert-error {
+            background: #fff0ee;
+            border: 1px solid #ffa198;
+            color: #82071e;
+        }
+
+        .alert-info {
+            background: #ddf4ff;
+            border: 1px solid #54aeff;
+            color: #0550ae;
+        }
+
+        /* Misc */
+        .mono {
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            color: var(--text-muted);
+            word-break: break-all;
+        }
+
+        .name {
+            font-weight: 600;
+        }
+
+        .source-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            gap: 12px;
+        }
+
+        .source-item:last-child {
+            border-bottom: none;
+        }
+
+        /* Install tab */
+        .install-body {
+            padding: 16px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr auto;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        @media (max-width: 580px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .versions-box {
+            margin-top: 14px;
+            padding: 14px;
+            background: #f6f8fa;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+
+        .versions-box h4 {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+
+        .vtag {
+            display: inline-block;
+            margin: 2px;
+            padding: 2px 10px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            font-size: 12px;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        .vtag:hover {
+            background: #ddf4ff;
+            border-color: #54aeff;
+            color: var(--primary);
+        }
+
+        .vsource {
+            margin-bottom: 10px;
+        }
+
+        .vsource-name {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: monospace;
+            margin-bottom: 4px;
+        }
+
+        /* Spinner */
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #d0d7de;
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Version select in available table */
+        .version-select {
+            font-size: 12px;
+            font-family: monospace;
+            padding: 3px 6px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface);
+            cursor: pointer;
+            min-width: 90px;
+        }
+
+        .version-select:disabled {
+            opacity: .6;
+            cursor: wait;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>ai-skills</h1>
+        <span class="pill">package manager</span>
+    </header>
+
+    <nav>
+        <button class="active" onclick="showTab('installed')">Installed</button>
+        <button onclick="showTab('sources')">Sources</button>
+        <button onclick="showTab('install')">Install</button>
+    </nav>
+
+    <main>
+        <div id="flash"></div>
+
+        <!-- INSTALLED -->
+        <div id="tab-installed" class="tab active">
+            <div class="card">
+                <div class="card-header">
+                    Installed Skills
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-primary btn-sm" id="btn-update-all" onclick="updateAll()">↑ Update
+                            all</button>
+                        <button class="btn btn-sm" onclick="loadInstalled()">↻ Refresh</button>
+                    </div>
+                </div>
+                <div id="installed-body">
+                    <div class="empty"><span class="spinner"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SOURCES -->
+        <div id="tab-sources" class="tab">
+            <div class="card">
+                <div class="card-header">Sources</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="new-source">Registry namespace</label>
+                        <input type="text" id="new-source" placeholder="ghcr.io/myorg/skills"
+                            onkeydown="if(event.key==='Enter') addSource()" />
+                    </div>
+                    <button class="btn btn-primary" onclick="addSource()">Add source</button>
+                </div>
+                <div id="sources-body">
+                    <div class="empty"><span class="spinner"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- INSTALL -->
+        <div id="tab-install" class="tab">
+            <div class="card">
+                <div class="card-header">
+                    Available Skills
+                    <button class="btn btn-sm" onclick="loadAvailable()">↻ Refresh</button>
+                </div>
+                <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+                    <input type="text" id="avail-search" placeholder="Filter skills…" oninput="filterAvailable()"
+                        style="width:100%;max-width:380px" />
+                </div>
+                <div id="available-body">
+                    <div class="empty"><span class="spinner"></span> Loading from registry…</div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script type="module">
+        const TABS = ['installed', 'sources', 'install'];
+
+        function showTab(name) {
+            TABS.forEach(t => {
+                document.getElementById('tab-' + t).classList.toggle('active', t === name);
+            });
+            document.querySelectorAll('nav button').forEach((btn, i) => {
+                btn.classList.toggle('active', TABS[i] === name);
+            });
+            if (name === 'installed') loadInstalled();
+            if (name === 'sources') loadSources();
+            if (name === 'install') loadAvailable();
+        }
+
+        function flash(text, type = 'info') {
+            const el = document.getElementById('flash');
+            el.innerHTML = `<div class="alert alert-${type}">${esc(text)}</div>`;
+            setTimeout(() => el.innerHTML = '', 4000);
+        }
+
+        async function api(url, opts = {}) {
+            const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || res.statusText);
+            return data;
+        }
+
+        function esc(s) {
+            return String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+        }
+
+        // ── Install / Available ────────────────────────────────────────────────────
+
+        async function loadAvailable() {
+            const el = document.getElementById('available-body');
+            el.innerHTML = '<div class="empty"><span class="spinner"></span> Loading from registry…</div>';
+            try {
+                const sources = await api('/api/available');
+                const allSkills = sources.flatMap(s => s.error
+                    ? [{ _error: true, source: s.source, msg: s.error }]
+                    : (s.skills || []).map(sk => ({ ...sk }))
+                );
+                if (!allSkills.length) {
+                    el.innerHTML = '<div class="empty">No skills found in any configured source.</div>';
+                    return;
+                }
+                // Load all versions in parallel so selects are fully populated on render.
+                const withTags = await Promise.all(allSkills.map(async s => {
+                    if (s._error) return s;
+                    try {
+                        const results = await api(`/api/versions?name=${encodeURIComponent(s.name)}`);
+                        const tags = [...new Set(results.flatMap(r => r.tags || []))];
+                        return { ...s, tags };
+                    } catch {
+                        return { ...s, tags: s.latest ? [s.latest] : [] };
+                    }
+                }));
+                el.innerHTML = `<table>
+      <thead><tr><th>Name</th><th>Source</th><th>Version</th><th></th></tr></thead>
+      <tbody>${withTags.map(s => {
+                    if (s._error) return `<tr><td colspan="4" style="color:var(--danger);font-size:12px;padding:10px 16px">${esc(s.source)}: ${esc(s.msg)}</td></tr>`;
+                    const badge = s.installedVersion
+                        ? ` <span id="badge-${esc(s.name)}" style="font-size:11px;color:var(--success);font-family:monospace">✓ ${esc(s.installedVersion)}</span>`
+                        : `<span id="badge-${esc(s.name)}"></span>`;
+                    const options = (s.tags && s.tags.length)
+                        ? s.tags.map(t => `<option value="${esc(t)}"${t === (s.installedVersion || s.latest) ? ' selected' : ''}>${esc(t)}</option>`).join('')
+                        : `<option value="${esc(s.latest || '')}">${esc(s.latest || '(unknown)')}</option>`;
+                    return `<tr data-name="${esc(s.name)}">
+              <td><span class="name">${esc(s.name)}</span>${badge}</td>
+              <td><span class="mono" style="font-size:11px">${esc(s.source)}</span></td>
+              <td><select id="sel-${esc(s.name)}" class="version-select">${options}</select></td>
+              <td id="avail-cell-${esc(s.name)}" style="text-align:right">
+                <button class="btn btn-primary btn-sm" onclick="quickInstall('${esc(s.name)}')">Install</button>
+              </td>
+            </tr>`;
+                }).join('')}
+      </tbody></table>`;
+            } catch (e) {
+                el.innerHTML = `<div class="empty" style="color:var(--danger)">${esc(e.message)}</div>`;
+            }
+        }
+
+        function filterAvailable() {
+            const q = (document.getElementById('avail-search').value || '').toLowerCase();
+            document.querySelectorAll('#available-body tr[data-name]').forEach(row => {
+                row.style.display = row.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+            });
+        }
+
+        async function quickInstall(name) {
+            const sel = document.getElementById('sel-' + name);
+            const version = sel ? sel.value : '';
+            const cell = document.getElementById('avail-cell-' + name);
+            if (cell) cell.innerHTML = '<span class="spinner"></span>';
+            try {
+                const r = await api('/api/install', { method: 'POST', body: JSON.stringify({ Name: name, Version: version }) });
+                if (r.skipped) {
+                    flash(`${name} is already at ${version}`, 'info');
+                } else {
+                    flash(`Installed ${name} @ ${version}`, 'success');
+                    // Update badge in-place — no full table reload needed.
+                    const badge = document.getElementById('badge-' + name);
+                    if (badge) {
+                        badge.style.color = 'var(--success)';
+                        badge.style.fontFamily = 'monospace';
+                        badge.style.fontSize = '11px';
+                        badge.textContent = ` ✓ ${version}`;
+                    }
+                }
+                if (cell) cell.innerHTML = `<button class="btn btn-primary btn-sm" onclick="quickInstall('${esc(name)}')">Install</button>`;
+            } catch (e) {
+                flash(e.message, 'error');
+                if (cell) cell.innerHTML = `<button class="btn btn-primary btn-sm" onclick="quickInstall('${esc(name)}')">Install</button>`;
+            }
+        }
+
+        // ── Installed ──────────────────────────────────────────────────────────────
+
+        async function updateAll() {
+            const btn = document.getElementById('btn-update-all');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Updating…';
+            try {
+                const results = await api('/api/update-all', { method: 'POST' });
+                const updated = results.filter(r => !r.skipped);
+                const skipped = results.filter(r => r.skipped);
+                if (updated.length) {
+                    flash(`Updated: ${updated.map(r => r.name).join(', ')}`, 'success');
+                } else {
+                    flash(`All ${skipped.length} skill${skipped.length === 1 ? '' : 's'} already up-to-date`, 'info');
+                }
+                loadInstalled();
+            } catch (e) {
+                flash(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '↑ Update all';
+            }
+        }
+
+        async function loadInstalled() {
+            const el = document.getElementById('installed-body');
+            el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+            try {
+                const skills = await api('/api/installed');
+                if (!skills.length) {
+                    el.innerHTML = '<div class="empty">No skills installed yet.</div>';
+                    return;
+                }
+                el.innerHTML = `<table>
+      <thead><tr><th>Name</th><th>Resolved ref</th><th>Path</th><th></th></tr></thead>
+      <tbody>${skills.map(s => `
+        <tr>
+          <td><span class="name">${esc(s.name)}</span></td>
+          <td><span class="mono">${esc(s.resolved)}</span></td>
+          <td><span class="mono">${esc(s.installed)}</span></td>
+          <td id="action-${esc(s.name)}" style="white-space:nowrap;text-align:right">
+            <span class="spinner" style="margin-right:6px"></span>
+            <button class="btn btn-danger btn-sm" onclick="uninstallSkill('${esc(s.name)}')">Remove</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
+                // Check for updates asynchronously per skill
+                skills.forEach(s => checkUpdateForSkill(s.name));
+            } catch (e) {
+                el.innerHTML = `<div class="empty" style="color:var(--danger)">${esc(e.message)}</div>`;
+            }
+        }
+
+        async function checkUpdateForSkill(name) {
+            const cell = document.getElementById('action-' + name);
+            if (!cell) return;
+            const removeBtn = `<button class="btn btn-danger btn-sm" onclick="uninstallSkill('${esc(name)}')">Remove</button>`;
+            try {
+                const info = await api(`/api/check-update?name=${encodeURIComponent(name)}`);
+                if (info.hasUpdate) {
+                    cell.innerHTML = `<button class="btn btn-primary btn-sm" style="margin-right:4px" onclick="updateSkill('${esc(name)}','${esc(info.latest)}')" title="Update to ${esc(info.latest)}">↑ ${esc(info.latest)}</button>${removeBtn}`;
+                } else {
+                    cell.innerHTML = removeBtn;
+                }
+            } catch {
+                cell.innerHTML = removeBtn;
+            }
+        }
+
+        async function updateSkill(name, version) {
+            const cell = document.getElementById('action-' + name);
+            const orig = cell ? cell.innerHTML : '';
+            if (cell) cell.innerHTML = '<span class="spinner"></span>';
+            try {
+                const r = await api('/api/install', { method: 'POST', body: JSON.stringify({ Name: name, Version: version }) });
+                flash(`Updated ${name} → ${r.ref || version}`, 'success');
+                loadInstalled();
+            } catch (e) {
+                flash(e.message, 'error');
+                if (cell) cell.innerHTML = orig;
+            }
+        }
+
+        async function uninstallSkill(name) {
+            if (!confirm(`Remove "${name}"?`)) return;
+            try {
+                await api('/api/uninstall', { method: 'POST', body: JSON.stringify({ Name: name }) });
+                flash(`Removed ${name}`, 'success');
+                loadInstalled();
+            } catch (e) { flash(e.message, 'error'); }
+        }
+
+        // ── Sources ────────────────────────────────────────────────────────────────
+
+        async function loadSources() {
+            const el = document.getElementById('sources-body');
+            el.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+            try {
+                const srcs = await api('/api/sources/list');
+                if (!srcs.length) {
+                    el.innerHTML = '<div class="empty">No sources configured yet.</div>';
+                    return;
+                }
+                el.innerHTML = srcs.map(s => `
+      <div class="source-item">
+        <span class="mono">${esc(s)}</span>
+        <button class="btn btn-danger btn-sm" onclick="removeSource('${esc(s)}')">Remove</button>
+      </div>`).join('');
+            } catch (e) {
+                el.innerHTML = `<div class="empty" style="color:var(--danger)">${esc(e.message)}</div>`;
+            }
+        }
+
+        async function addSource() {
+            const input = document.getElementById('new-source');
+            const val = input.value.trim();
+            if (!val) return;
+            try {
+                await api('/api/sources/add', { method: 'POST', body: JSON.stringify({ Source: val }) });
+                input.value = '';
+                flash(`Added ${val}`, 'success');
+                loadSources();
+            } catch (e) { flash(e.message, 'error'); }
+        }
+
+        async function removeSource(src) {
+            if (!confirm(`Remove source "${src}"?`)) return;
+            try {
+                await api('/api/sources/remove', { method: 'POST', body: JSON.stringify({ Source: src }) });
+                flash(`Removed ${src}`, 'success');
+                loadSources();
+            } catch (e) { flash(e.message, 'error'); }
+        }
+
+        // Expose functions for inline event handlers (required for module scripts)
+        Object.assign(window, { showTab, updateAll, loadInstalled, loadAvailable, addSource, quickInstall, uninstallSkill, updateSkill, removeSource, filterAvailable });
+
+        // Initial load
+        await loadInstalled();
+    </script>
+</body>
+
+</html>
