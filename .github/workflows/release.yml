@@ -132,6 +132,7 @@ jobs:
         with:
           path: dist/
           merge-multiple: true
+          pattern: ai-skills-*
 
       - name: Create checksums
         run: |
